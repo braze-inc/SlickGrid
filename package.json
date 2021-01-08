@@ -7,5 +7,7 @@
   "repository": "git@github.com:braze-inc/SlickGrid.git",
   "author": "Braze",
   "license": "UNLICENSED",
-  "private": true
+  "publishConfig": { 
+    "registry": "https://registry.npmjs.org/"
+  }
 }

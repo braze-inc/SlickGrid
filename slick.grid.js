@@ -18,6 +18,8 @@
  *     THIS FILE HAS BEEN MODIFIED BY APPBOY!  Cmd-F "Appboy Modification" for more details.
  */
 
+export default function() {
+
 // make sure required JavaScript modules are loaded
 if (typeof jQuery === "undefined") {
   throw "SlickGrid requires jquery module to be loaded";
@@ -3600,3 +3602,5 @@ if (typeof Slick === "undefined") {
     init();
   }
 }(jQuery));
+
+}
