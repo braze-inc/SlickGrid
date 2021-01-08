@@ -1,3 +1,7 @@
+//
+// Modified from original Slickgrid source by Ian (see "Appboy Modification" comment below)
+//
+
 (function ($) {
   function SlickGridPager(dataView, grid, $container) {
     var $status;
@@ -111,7 +115,9 @@
             $(this).toggleClass("ui-state-hover");
           });
 
-      $container.children().wrapAll("<div class='slick-pager' />");
+      // Appboy Modification: Ian added ui-state-default here to make the footer get jquery ui theme
+      $container.children().wrapAll("<div class='slick-pager-row ui-state-default'>");
+      $container.children().wrapAll("<div class='slick-pager ui-widget-header'>");
     }
 
 
@@ -133,13 +139,6 @@
       }
 
       if (pagingInfo.pageSize == 0) {
-        var totalRowsCount = dataView.getItems().length;
-        var visibleRowsCount = pagingInfo.totalRows;
-        if (visibleRowsCount < totalRowsCount) {
-          $status.text("Showing " + visibleRowsCount + " of " + totalRowsCount + " rows");
-        } else {
-          $status.text("Showing all " + totalRowsCount + " rows");
-        }
         $status.text("Showing all " + pagingInfo.totalRows + " rows");
       } else {
         $status.text("Showing page " + (pagingInfo.pageNum + 1) + " of " + pagingInfo.totalPages);

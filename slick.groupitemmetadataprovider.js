@@ -1,3 +1,4 @@
+// THERE ARE APPBOY MODIFICATIONS TO THIS FILE!  Look for "Appboy Modification"
 (function ($) {
   $.extend(true, window, {
     Slick: {
@@ -80,10 +81,11 @@
       var item = this.getDataItem(args.row);
       if (item && item instanceof Slick.Group && $(e.target).hasClass(options.toggleCssClass)) {
         var range = _grid.getRenderedRange();
+        // Appboy Modification - https://github.com/mleibman/SlickGrid/pull/898/files
         this.getData().setRefreshHints({
           ignoreDiffsBefore: range.top,
-          ignoreDiffsAfter: range.bottom
-        });
+          ignoreDiffsAfter: range.bottom + 1
+        }); //take diff till range.bottom , and ignore it after.
 
         if (item.collapsed) {
           this.getData().expandGroup(item.groupingKey);
@@ -104,10 +106,11 @@
           var item = this.getDataItem(activeCell.row);
           if (item && item instanceof Slick.Group) {
             var range = _grid.getRenderedRange();
+            // Appboy Modification - https://github.com/mleibman/SlickGrid/pull/898/files
             this.getData().setRefreshHints({
               ignoreDiffsBefore: range.top,
-              ignoreDiffsAfter: range.bottom
-            });
+              ignoreDiffsAfter: range.bottom + 1
+            }); //take diff till range.bottom , and ignore it after.
 
             if (item.collapsed) {
               this.getData().expandGroup(item.groupingKey);

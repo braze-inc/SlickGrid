@@ -1,3 +1,4 @@
+// MODIFIED BY APPBOY! Look for 'Appboy Modification'
 (function ($) {
   // register namespace
   $.extend(true, window, {
@@ -134,7 +135,11 @@
         return false;
       }
 
-      if (!_grid.getOptions().multiSelect || (
+      // Appboy Modification - requireExplicitRowSelection option - without this, cmd-click anywhere on a row
+      // (or shift-click anywhere on a row, with a row previously selected, etc) would select/deselect a row,
+      // when we want to require use of the slick.checkboxselectcolumn or slick-grid.keyboardnavigation plugins
+      // in order to change row selection
+      if (_options.requireExplicitRowSelection || !_grid.getOptions().multiSelect || (
           !e.ctrlKey && !e.shiftKey && !e.metaKey)) {
         return false;
       }

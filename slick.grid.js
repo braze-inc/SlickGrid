@@ -14,6 +14,8 @@
  *     This increases the speed dramatically, but can only be done safely because there are no event handlers
  *     or data associated with any cell/row DOM nodes.  Cell editors must make sure they implement .destroy()
  *     and do proper cleanup.
+ *
+ *     THIS FILE HAS BEEN MODIFIED BY APPBOY!  Cmd-F "Appboy Modification" for more details.
  */
 
 // make sure required JavaScript modules are loaded
@@ -57,6 +59,7 @@ if (typeof Slick === "undefined") {
     var defaults = {
       explicitInitialization: false,
       rowHeight: 25,
+      cellHeight: null,
       defaultColumnWidth: 80,
       enableAddRow: false,
       leaveSpaceForNewRows: false,
@@ -86,7 +89,8 @@ if (typeof Slick === "undefined") {
       multiColumnSort: false,
       defaultFormatter: defaultFormatter,
       forceSyncScrolling: false,
-      addNewRowCssClass: "new-row"
+      addNewRowCssClass: "new-row",
+      dynamicRowHeight: false,
     };
 
     var columnDefaults = {
@@ -134,6 +138,8 @@ if (typeof Slick === "undefined") {
     var headerColumnWidthDiff = 0, headerColumnHeightDiff = 0, // border+padding
         cellWidthDiff = 0, cellHeightDiff = 0;
     var absoluteColumnMinWidth;
+    var expandedRows = [];
+    var expandedHeight = 0
 
     var tabbingDirection = 1;
     var activePosX;
@@ -273,7 +279,8 @@ if (typeof Slick === "undefined") {
       if (!initialized) {
         initialized = true;
 
-        viewportW = parseFloat($.css($container[0], "width", true));
+        // Appboy Modification - work around https://github.com/mleibman/SlickGrid/issues/742
+        viewportW = parseFloat($container.width());
 
         // header columns and cells may have different padding/border skewing width calculations (box-sizing, hello?)
         // calculate the diff so we can set consistent sizes
@@ -917,26 +924,36 @@ if (typeof Slick === "undefined") {
       absoluteColumnMinWidth = Math.max(headerColumnWidthDiff, cellWidthDiff);
     }
 
+    // Appboy Modification - To work around https://github.com/mleibman/SlickGrid/issues/223, applied
+    // Maheshkumar-Kakade's modification to this function
     function createCssRules() {
       $style = $("<style type='text/css' rel='stylesheet' />").appendTo($("head"));
       var rowHeight = (options.rowHeight - cellHeightDiff);
-      var rules = [
-        "." + uid + " .slick-header-column { left: 1000px; }",
-        "." + uid + " .slick-top-panel { height:" + options.topPanelHeight + "px; }",
-        "." + uid + " .slick-headerrow-columns { height:" + options.headerRowHeight + "px; }",
-        "." + uid + " .slick-cell { height:" + rowHeight + "px; }",
-        "." + uid + " .slick-row { height:" + options.rowHeight + "px; }"
-      ];
+      if ($style[0].styleSheet) { // IE
+        $style[0].styleSheet.cssText = "";
+      } else {
+        $style[0].appendChild(document.createTextNode(""));
+      }
+      var sheet =  $style[0].sheet;
+      var index = 0;
+      addCSSRule(sheet, "." + uid + " .slick-header-column", "left: 1000px;", index++);
+      addCSSRule(sheet, "." + uid + " .slick-top-panel", "height:" + options.topPanelHeight + "px;", index++);
+      addCSSRule(sheet, "." + uid + " .slick-headerrow-columns", "height:" + options.headerRowHeight + "px;", index++);
+      addCSSRule(sheet, "." + uid + " .slick-cell", "height:" + rowHeight + "px;", index++);
+      addCSSRule(sheet, "." + uid + " .slick-row", "height:" + options.rowHeight + "px;", index++);
 
       for (var i = 0; i < columns.length; i++) {
-        rules.push("." + uid + " .l" + i + " { }");
-        rules.push("." + uid + " .r" + i + " { }");
+        addCSSRule(sheet, "." + uid + " .l" + i , "", index++);
+        addCSSRule(sheet, "." + uid + " .r" + i, "", index++);
       }
+    }
 
-      if ($style[0].styleSheet) { // IE
-        $style[0].styleSheet.cssText = rules.join(" ");
-      } else {
-        $style[0].appendChild(document.createTextNode(rules.join(" ")));
+    function addCSSRule(sheet, selector, rules, index) {
+      if (sheet.insertRule) {
+        sheet.insertRule(selector + "{" + rules + "}", index);
+      }
+      else {
+        sheet.addRule(selector, rules, index);
       }
     }
 
@@ -999,14 +1016,99 @@ if (typeof Slick === "undefined") {
       unbindAncestorScrollEvents();
       $container.unbind(".slickgrid");
       removeCssRules();
-
       $canvas.unbind("draginit dragstart dragend drag");
       $container.empty().removeClass(uid);
-    }
 
+      // Appboy Modification - scorched earth policy!  (jquery.event.drag was retaining the grid indefinitely)
+      $viewport.unbind();
+      $headerScroller.unbind();
+      $headerRowScroller.unbind();
+      $focusSink.unbind();
+      $canvas.empty().unbind();
+      $.event.special.drag.teardown.apply($canvas);
+
+      // Appboy Modification - we explicitly null these guys out because they were retaining detached DOM trees
+      $container = $focusSink = $focusSink2 = $headerScroller = $headers = $headerRow = $headerRowScroller = $headerRowSpacer = $topPanelScroller = $topPanel = $viewport = $canvas = $style = $boundAncestors = null;
+      activeCellNode = null;
+      currentEditor = null;
+      rowsCache = {};
+      selectedRows = [];
+      plugins = [];
+      cellCssClasses = {};
+      columnsById = {};
+      sortColumns = [];
+      h_editorLoader = null;
+      h_render = null;
+      h_postrender = null;
+      postProcessedRows = {};
+      postProcessToRow = null;
+      postProcessFromRow = null;
+    }
 
     //////////////////////////////////////////////////////////////////////////////////////////////
     // General
+
+    // Appboy Modification - This method is used to allow slick.grid to handle expanded rows that have been generated
+    // @params row is the row's index
+    // @params position is the height from the top in pixels at which the expanded row ends
+    // @params base is the height from top in pixels at which the expanded row begins
+    // @params heightOffset is the total height added by the expanded row
+    function addExpandedRow(row, position, base, heightOffset) {
+      sortFunction = function(a, b) {
+        if (a.index > b.index) {
+          return 1;
+        }
+        if (a.index < b.index) {
+          return -1;
+        }
+        return 0;
+      };
+      // th is the total height, 'virtual height', of the entire grid. We need to add the height offset to it
+      // otherwise the grid will not allow scrolling over the entire grid. 
+      th += heightOffset;
+      // expandedHeight is used to quickly adjust th upon loading new rows (see updateRowCount())
+      expandedHeight += heightOffset;
+      expandedRows.push({index: row, base: base, position: position - options.cellHeight});
+      expandedRows = expandedRows.sort(sortFunction);
+      for(var i in expandedRows) {
+        if (expandedRows[i].index > row) {
+          expandedRows[i].base += heightOffset;
+          expandedRows[i].position += heightOffset;
+        }
+      }
+      // the grid needs to recheck and render any changes. It is possible that some rows were pushed out of view and no longer
+      // need to be displayed.
+      render()
+    }
+
+    // Appboy Modification - This method is used to allow slick.grid to handle the removing of expanded rows
+    // @params row is the row's index
+    // @params heightOffset is the total height added by the expanded row
+    function removeExpandedRow(row, heightOffset) {
+      // Unlike the row param which is the index of the contracted row into the array of all rows, this index is the index into the expanded rows array
+      var index = -1;
+      for(var i in expandedRows) {
+        // expandedRows is sorted so if the expanded row index has been found (i.e. index !== -1) than all further expanded rows need
+        // to be corrected
+        if (index !== -1) {
+          expandedRows[i].position -= heightOffset;
+          expandedRows[i].base -= heightOffset;
+        }
+        if (expandedRows[i].index === row) {
+          index = i
+        }
+      }
+      
+      if (index > -1) {
+        // th is the total height, 'virtual height', of the entire grid. We need to subtract the height offset to it
+        // otherwise the grid will allow over scrolling. 
+        th -= heightOffset;
+        // expandedHeight is used to quickly adjust th upon loading new rows (see updateRowCount())
+        expandedHeight -= heightOffset;
+        expandedRows.splice(index, 1);
+      }
+      render()
+    }
 
     function trigger(evt, args, e) {
       e = e || new Slick.EventData();
@@ -1324,11 +1426,51 @@ if (typeof Slick === "undefined") {
     // Rendering / Scrolling
 
     function getRowTop(row) {
-      return options.rowHeight * row - offset;
+      // Appboy Modification - If this slick.grid is using expandable rows (i.e. options.dynamicRowHeight is true) 
+      // it is necessary to correct how we get a row's top
+      if (options.dynamicRowHeight && expandedRows.length > 0) {
+        // Binary Search would be an improvement here
+        var baseRow = 0;
+        var position = 0;
+        for (var i = 0; i < expandedRows.length; i++) {
+          if (row > expandedRows[i].index) {
+            baseRow = expandedRows[i].index;
+            position = expandedRows[i].position;
+          } else {
+            break;
+          }
+        }
+        return position + ((row - baseRow) * options.rowHeight) - offset;
+      } else {
+        return options.rowHeight * row - offset;
+      }
     }
 
     function getRowFromPosition(y) {
-      return Math.floor((y + offset) / options.rowHeight);
+      // Appboy Modification - If this slick.grid is using expandable rows (i.e. options.dynamicRowHeight is true) 
+      // it is necessary to correct how we get a row's index from a position
+      if (options.dynamicRowHeight && expandedRows.length > 0) {
+        var row = 0;
+        var position = 0;
+        for (var i = 0; i < expandedRows.length; i++) {
+          if (expandedRows[i].position < (y + offset)) {
+            row = expandedRows[i].index;
+            position = expandedRows[i].position;
+          } else if (expandedRows[i].base < (y + offset)) {
+            return expandedRows[i].index;
+          } else {
+            break;
+          }
+        }
+        
+        while((y + offset) > position + options.rowHeight) {
+          row += 1;
+          position += options.rowHeight;
+        }
+        return row;
+      } else {
+        return Math.floor((y + offset) / options.rowHeight);
+      }
     }
 
     function scrollTo(y) {
@@ -1491,6 +1633,9 @@ if (typeof Slick === "undefined") {
     function invalidate() {
       updateRowCount();
       invalidateAllRows();
+      // Appboy Modification - when invalidating the grid we need to empty expandedRows
+      expandedRows = [];
+
       render();
     }
 
@@ -1515,7 +1660,7 @@ if (typeof Slick === "undefined") {
       } else {
         $canvas[0].removeChild(cacheEntry.rowNode);
       }
-      
+
       delete rowsCache[row];
       delete postProcessedRows[row];
       renderedRows--;
@@ -1606,7 +1751,8 @@ if (typeof Slick === "undefined") {
       }
 
       numVisibleRows = Math.ceil(viewportH / options.rowHeight);
-      viewportW = parseFloat($.css($container[0], "width", true));
+      // Appboy Modification - work around https://github.com/mleibman/SlickGrid/issues/742
+      viewportW = parseFloat($container.width());
       if (!options.autoHeight) {
         $viewport.height(viewportH);
       }
@@ -1630,8 +1776,12 @@ if (typeof Slick === "undefined") {
           (options.leaveSpaceForNewRows ? numVisibleRows - 1 : 0);
 
       var oldViewportHasVScroll = viewportHasVScroll;
+
+      // Appboy Modification - Added handling for expanded rows. Specifically if we are updating row count we add the expanded height such that
+      // the th and viewportHasVScroll remain accurate.
+      var newTotalHeight = options.dynamicRowHeight ? numberOfRows * options.rowHeight + expandedHeight : numberOfRows * options.rowHeight
       // with autoHeight, we do not need to accommodate the vertical scroll bar
-      viewportHasVScroll = !options.autoHeight && (numberOfRows * options.rowHeight > viewportH);
+      viewportHasVScroll = !options.autoHeight && (newTotalHeight > viewportH);
 
       makeActiveCellNormal();
 
@@ -1649,7 +1799,7 @@ if (typeof Slick === "undefined") {
       }
 
       var oldH = h;
-      th = Math.max(options.rowHeight * numberOfRows, viewportH - scrollbarDimensions.height);
+      th = Math.max(newTotalHeight, viewportH - scrollbarDimensions.height);
       if (th < maxSupportedCssHeight) {
         // just one page
         h = ph = th;
@@ -1972,7 +2122,6 @@ if (typeof Slick === "undefined") {
         $viewport[0].scrollLeft = scrollLeft;
       }
     }
-
     function handleScroll() {
       scrollTop = $viewport[0].scrollTop;
       scrollLeft = $viewport[0].scrollLeft;
@@ -2162,7 +2311,7 @@ if (typeof Slick === "undefined") {
           $canvas[0].removeChild(zombieRowNodeFromLastMouseWheelEvent);
           zombieRowNodeFromLastMouseWheelEvent = null;
         }
-        rowNodeFromLastMouseWheelEvent = rowNode;      
+        rowNodeFromLastMouseWheelEvent = rowNode;
       }
     }
 
@@ -2217,7 +2366,7 @@ if (typeof Slick === "undefined") {
             cancelEditAndSetFocus();
           } else if (e.which == 34) {
             navigatePageDown();
-            handled = true;           
+            handled = true;
           } else if (e.which == 33) {
             navigatePageUp();
             handled = true;
@@ -2273,7 +2422,12 @@ if (typeof Slick === "undefined") {
         // don't steal it back - keyboard events will still bubble up
         // IE9+ seems to default DIVs to tabIndex=0 instead of -1, so check for cell clicks directly.
         if (e.target != document.activeElement || $(e.target).hasClass("slick-cell")) {
+          // Appboy Modification - https://github.com/mleibman/SlickGrid/pull/936
+          var selection = getTextSelection(); //store text-selection and restore it after
           setFocus();
+          if (options.enableTextSelectionOnCells) {
+            setTextSelection(selection);
+          }
         }
       }
 
@@ -2454,6 +2608,25 @@ if (typeof Slick === "undefined") {
       }
     }
 
+    // Appboy Modification - https://github.com/mleibman/SlickGrid/pull/936
+    // These get/set methods are used for keeping text-selection. These don't consider IE because they don't lose
+    // text-selection.
+    function getTextSelection(){
+      var selection = null;
+      if (window.getSelection && window.getSelection().rangeCount > 0) {
+        selection = window.getSelection().getRangeAt(0);
+      }
+      return selection;
+    }
+
+    function setTextSelection(selection){
+      if (window.getSelection && selection) {
+        var target = window.getSelection();
+        target.removeAllRanges();
+        target.addRange(selection);
+      }
+    }
+
     function scrollCellIntoView(row, cell, doPaging) {
       scrollRowIntoView(row, doPaging);
 
@@ -2604,10 +2777,12 @@ if (typeof Slick === "undefined") {
       getEditorLock().activate(editController);
       $(activeCellNode).addClass("editable");
 
+      // Appboy Modification - the below code is commented out so that we can edit cells directly, without first
+      // clicking once to get focus.
       // don't clear the cell if a custom editor is passed through
-      if (!editor) {
-        activeCellNode.innerHTML = "";
-      }
+//      if (!editor) {
+//        activeCellNode.innerHTML = "";
+//      }
 
       currentEditor = new (editor || getEditor(activeRow, activeCell))({
         grid: self,
@@ -2636,9 +2811,10 @@ if (typeof Slick === "undefined") {
       // if so, do not steal the focus from the editor
       if (getEditorLock().commitCurrentEdit()) {
         setFocus();
-        if (options.autoEdit) {
-          navigateDown();
-        }
+      // Appboy Modification: We don't want to automatically navigate down whenever the cell loses focus
+//        if (options.autoEdit) {
+//          navigateDown();
+//        }
       }
     }
 
@@ -2774,7 +2950,7 @@ if (typeof Slick === "undefined") {
         var prevActivePosX = activePosX;
         while (cell <= activePosX) {
           if (canCellBeActive(row, cell)) {
-            prevCell = cell;  
+            prevCell = cell;
           }
           cell += getColspan(row, cell);
         }
@@ -3273,26 +3449,28 @@ if (typeof Slick === "undefined") {
     //////////////////////////////////////////////////////////////////////////////////////////////
     // Debug
 
-    this.debug = function () {
-      var s = "";
+    // Appboy Modification - commented out because it was retaining $container indefinitely and causing memory leaks
 
-      s += ("\n" + "counter_rows_rendered:  " + counter_rows_rendered);
-      s += ("\n" + "counter_rows_removed:  " + counter_rows_removed);
-      s += ("\n" + "renderedRows:  " + renderedRows);
-      s += ("\n" + "numVisibleRows:  " + numVisibleRows);
-      s += ("\n" + "maxSupportedCssHeight:  " + maxSupportedCssHeight);
-      s += ("\n" + "n(umber of pages):  " + n);
-      s += ("\n" + "(current) page:  " + page);
-      s += ("\n" + "page height (ph):  " + ph);
-      s += ("\n" + "vScrollDir:  " + vScrollDir);
-
-      alert(s);
-    };
-
-    // a debug helper to be able to access private members
-    this.eval = function (expr) {
-      return eval(expr);
-    };
+//    this.debug = function () {
+//      var s = "";
+//
+//      s += ("\n" + "counter_rows_rendered:  " + counter_rows_rendered);
+//      s += ("\n" + "counter_rows_removed:  " + counter_rows_removed);
+//      s += ("\n" + "renderedRows:  " + renderedRows);
+//      s += ("\n" + "numVisibleRows:  " + numVisibleRows);
+//      s += ("\n" + "maxSupportedCssHeight:  " + maxSupportedCssHeight);
+//      s += ("\n" + "n(umber of pages):  " + n);
+//      s += ("\n" + "(current) page:  " + page);
+//      s += ("\n" + "page height (ph):  " + ph);
+//      s += ("\n" + "vScrollDir:  " + vScrollDir);
+//
+//      alert(s);
+//    };
+//
+//    // a debug helper to be able to access private members
+//    this.eval = function (expr) {
+//      return eval(expr);
+//    };
 
     //////////////////////////////////////////////////////////////////////////////////////////////
     // Public API
@@ -3357,6 +3535,8 @@ if (typeof Slick === "undefined") {
       "getSelectedRows": getSelectedRows,
       "setSelectedRows": setSelectedRows,
       "getContainerNode": getContainerNode,
+      "addExpandedRow": addExpandedRow,
+      "removeExpandedRow": removeExpandedRow,
 
       "render": render,
       "invalidate": invalidate,
