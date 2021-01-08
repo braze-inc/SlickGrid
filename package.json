@@ -1,6 +1,6 @@
 {
   "name": "@braze/slickgrid",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "homepage": "https://github.com/braze-inc/SlickGrid/tree/master/packages/affix#readme",
   "description": "A private fork of https://github.com/mleibman/SlickGrid with Braze modifications",
   "main": "index.js",
