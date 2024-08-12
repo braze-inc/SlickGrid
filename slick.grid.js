@@ -1056,7 +1056,7 @@ if (typeof Slick === "undefined") {
     // @params base is the height from top in pixels at which the expanded row begins
     // @params heightOffset is the total height added by the expanded row
     function addExpandedRow(row, position, base, heightOffset) {
-      sortFunction = function(a, b) {
+      var sortFunction = function(a, b) {
         if (a.index > b.index) {
           return 1;
         }
